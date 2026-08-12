@@ -159,7 +159,7 @@ pi -e whatsapp-pi.ts --whatsapp-pi-online
 
 - Pi processes **incoming** messages only from allowed contacts or allowed groups.
 - **Recents** is history browser, not trigger.
-- **Send Message** and `send_wa_message` are outbound only.
+- **Send Message**, `send_wa_message`, and `send_wa_image` are outbound only.
 - If you message yourself, WhatsApp may show sent/read ticks, but that does not guarantee Pi will treat it as a trigger.
 
 ## LLM-Callable Tools
@@ -169,6 +169,7 @@ The extension registers the following tools that the Pi agent can call:
 | Tool | Direction | Description |
 | --- | --- | --- |
 | `send_wa_message` | outbound | Send a WhatsApp message to a contact or group (or reply to the last conversation if `jid` is omitted). |
+| `send_wa_image` | outbound | Send a local JPEG, PNG, GIF, or WebP image (up to 16 MB), with an optional caption. Relative paths resolve from Pi's working directory. |
 | `send_reaction` | outbound | React to a WhatsApp message with an emoji. |
 | `list_wa_conversations` | read-only | List recent conversations from the local recents store. Supports `onlyIncoming`, `onlyAllowed`, and `limit`. |
 | `get_wa_conversation_history` | read-only | Get the most recent messages with a given `senderNumber` (accepts `+E164`, raw digits, or a JID). Supports `limit`. |

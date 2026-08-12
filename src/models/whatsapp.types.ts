@@ -25,13 +25,23 @@ export interface IncomingMessage {
     quotedMessage?: QuotedMessageInfo;
 }
 
+export interface MessageOptions {
+    maxRetries?: number;
+    priority?: 'high' | 'normal';
+}
+
 export interface MessageRequest {
     recipientJid: string;
     text: string;
-    options?: {
-        maxRetries?: number;
-        priority?: 'high' | 'normal';
-    };
+    options?: MessageOptions;
+}
+
+export interface ImageMessageRequest {
+    recipientJid: string;
+    image: Buffer;
+    caption?: string;
+    mimetype: string;
+    options?: MessageOptions;
 }
 
 export interface MessageResult {

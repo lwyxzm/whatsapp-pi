@@ -93,7 +93,10 @@ interface WhatsAppSocketLike {
     };
     end(reason?: unknown): void;
     logout(): Promise<void>;
-    sendMessage(jid: string, content: { text: string }): Promise<{ key?: { id?: string } } | undefined>;
+    sendMessage(
+        jid: string,
+        content: { text: string } | { image: Buffer; caption: string; mimetype: string }
+    ): Promise<{ key?: { id?: string } } | undefined>;
     sendPresenceUpdate(presence: 'composing' | 'recording' | 'paused', jid: string): Promise<void>;
     readMessages(messages: Array<{ remoteJid: string; id: string; fromMe: boolean }>): Promise<void>;
     groupMetadata(jid: string): Promise<{ id: string; subject: string; participants: Array<{ id: string }> }>;
@@ -714,6 +717,25 @@ export class WhatsAppService {
         });
 
         // After sending, we can stop the typing indicator
+        await this.sendPresence(recipientJid, 'paused');
+
+        if (!result.success) {
+            console.error(t('service.whatsapp.failedSendMessage', { jid: recipientJid, error: result.error ?? t('message.sender.unknownError') }));
+        }
+
+        return result;
+    }
+
+    async sendImage(jid: string, image: Buffer, mimetype: string, caption?: string) {
+        const recipientJid = this.resolveOutboundRecipientJid(jid);
+
+        await this.sendPresence(recipientJid, 'composing');
+        const result = await this.messageSender.sendImage({
+            recipientJid,
+            image,
+            mimetype,
+            caption
+        });
         await this.sendPresence(recipientJid, 'paused');
 
         if (!result.success) {

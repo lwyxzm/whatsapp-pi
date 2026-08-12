@@ -1,5 +1,5 @@
 import { WhatsAppService } from './whatsapp.service.js';
-import { MessageRequest, MessageResult, WhatsAppError } from '../models/whatsapp.types.js';
+import { ImageMessageRequest, MessageOptions, MessageRequest, MessageResult, WhatsAppError } from '../models/whatsapp.types.js';
 import { t } from '../i18n.js';
 import { appendFileSync } from 'fs';
 import { createStoragePaths } from './storage-path.js';
@@ -41,43 +41,58 @@ export class MessageSender {
         }
     }
 
-    /**
-     * Sends a message with retry logic and connection awareness.
-     * @param request The message recipient and content.
-     * @returns Promise resolving to a result object indicating success or failure.
-     */
+    /** Sends a branded text message with retry logic and connection awareness. */
     public async send(request: MessageRequest): Promise<MessageResult> {
-        const isGroup = request.recipientJid.endsWith('@g.us');
+        return this.sendContent(
+            request.recipientJid,
+            { text: `${request.text} π` },
+            request.options
+        );
+    }
+
+    /** Sends an image. The π caption prevents the extension from processing its own message. */
+    public async sendImage(request: ImageMessageRequest): Promise<MessageResult> {
+        const caption = request.caption?.trim();
+        return this.sendContent(
+            request.recipientJid,
+            {
+                image: request.image,
+                caption: caption ? `${caption} π` : 'π',
+                mimetype: request.mimetype
+            },
+            request.options
+        );
+    }
+
+    private async sendContent(
+        recipientJid: string,
+        content: { text: string } | { image: Buffer; caption: string; mimetype: string },
+        options?: MessageOptions
+    ): Promise<MessageResult> {
+        const isGroup = recipientJid.endsWith('@g.us');
         // Groups need more retries because the first send bootstraps
         // the Signal sender-key session (causes "No sessions" on first attempts)
-        const maxRetries = isGroup ? 5 : (request.options?.maxRetries ?? 3);
+        const maxRetries = isGroup ? 5 : (options?.maxRetries ?? 3);
         let attempts = 0;
         let lastError: unknown = null;
 
         while (attempts < maxRetries) {
             attempts++;
             try {
-                // 1. Ensure we are online
                 await this.waitIfOffline();
-                
-                // 2. Get active socket
+
                 const socket = this.whatsappService.getSocket();
                 if (!socket) {
                     throw new WhatsAppError('SOCKET_NOT_INIT', t('message.sender.socketNotInitialized'));
                 }
 
-                // 3. Pre-load group metadata on first attempt
                 if (isGroup && attempts === 1) {
-                    await this.whatsappService.prepareGroupSession(request.recipientJid);
+                    await this.whatsappService.prepareGroupSession(recipientJid);
                 }
 
-                // 4. Send the message
-                // Note: Branding π is applied here to ensure consistency
-                const response = await socket.sendMessage(request.recipientJid, { 
-                    text: `${request.text} π` 
-                });
+                const response = await socket.sendMessage(recipientJid, content);
 
-                fileLog(`SUCCESS sending to ${request.recipientJid} on attempt ${attempts}`);
+                fileLog(`SUCCESS sending to ${recipientJid} on attempt ${attempts}`);
                 return {
                     success: true,
                     messageId: response?.key?.id,
@@ -87,16 +102,14 @@ export class MessageSender {
                 lastError = error;
                 console.error(t('message.sender.attemptFailed', {
                     attempt: attempts,
-                    recipientJid: request.recipientJid,
+                    recipientJid,
                     error: error instanceof Error ? error.message : String(error)
                 }));
-                
-                // Specific handling for non-retryable errors
+
                 if (error instanceof WhatsAppError && error.code === 'TIMEOUT') {
                     break;
                 }
 
-                // 5. Backoff before retry
                 if (attempts < maxRetries) {
                     const message = error instanceof Error ? error.message : String(error);
                     const isNoSessions = message.includes('No sessions');

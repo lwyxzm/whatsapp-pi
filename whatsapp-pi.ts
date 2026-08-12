@@ -9,6 +9,7 @@ import { extractIncomingText } from './src/services/incoming-message.resolver.js
 import { IncomingMediaService } from './src/services/incoming-media.service.js';
 import { WhatsAppPiLogger } from './src/services/whatsapp-pi.logger.js';
 import { ReactionSender } from './src/services/reaction.sender.js';
+import { loadOutgoingImage } from './src/services/outgoing-image.service.js';
 import { initI18n, t } from './src/i18n.js';
 
 const shutdownState = globalThis as typeof globalThis & {
@@ -361,6 +362,78 @@ export default function (pi: ExtensionAPI) {
                     t("log.result.status.failed"),
                     t("log.result.error", { error: result.error ?? t("log.unknownError") })
                 ].join('\n'));
+            }
+
+            return {
+                isError: !result.success,
+                details: undefined,
+                content: [{ type: "text" as const, text: JSON.stringify({ success: result.success, messageId: result.messageId, error: result.error, attempts: result.attempts }) }]
+            };
+        }
+    });
+
+    // Register send_wa_image tool (LLM-callable)
+    pi.registerTool({
+        name: "send_wa_image",
+        label: "Send WhatsApp Image",
+        description: "Send a local JPEG, PNG, GIF, or WebP image to a WhatsApp contact or group. Relative paths are resolved from the current working directory. Images are limited to 16 MB. If jid is omitted, replies to the last conversation.",
+        promptSnippet: "send_wa_image({jid?, path, caption?}) - Send a local image through WhatsApp. After calling this tool, do not repeat the caption or add a delivery confirmation in chat.",
+        parameters: Type.Object({
+            jid: Type.Optional(Type.String({ description: "WhatsApp JID of the recipient" })),
+            recipient_jid: Type.Optional(Type.String({ description: "Alternative name for jid" })),
+            path: Type.String({ minLength: 1, description: "Local image path, absolute or relative to the current working directory" }),
+            caption: Type.Optional(Type.String({ description: "Optional image caption" }))
+        }),
+        async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+            const resolvedJid = params.jid || params.recipient_jid || whatsappService.getLastRemoteJid() || whatsappService.getOperatorJid();
+            if (!resolvedJid) {
+                return {
+                    isError: true,
+                    details: undefined,
+                    content: [{ type: "text" as const, text: JSON.stringify({ success: false, error: "No JID provided and no active conversation to reply to", attempts: 0 }) }]
+                };
+            }
+
+            if (whatsappService.getStatus() !== 'connected') {
+                return {
+                    isError: true,
+                    details: undefined,
+                    content: [{ type: "text" as const, text: JSON.stringify({ success: false, error: t("tool.error.notConnected"), attempts: 0 }) }]
+                };
+            }
+
+            let image;
+            try {
+                image = await loadOutgoingImage(params.path ?? '', ctx.cwd);
+            } catch (error) {
+                return {
+                    isError: true,
+                    details: undefined,
+                    content: [{ type: "text" as const, text: JSON.stringify({ success: false, error: error instanceof Error ? error.message : String(error), attempts: 0 }) }]
+                };
+            }
+
+            const outboundJid = whatsappService.resolveOutboundRecipientJid(resolvedJid);
+            logger.log(`[WhatsApp-Pi] Sending image ${image.absolutePath} to ${outboundJid}`);
+            const result = await whatsappService.sendImage(
+                outboundJid,
+                image.data,
+                image.mimetype,
+                params.caption
+            );
+
+            if (result.success) {
+                toolSentToJid = outboundJid;
+                const recentText = params.caption?.trim()
+                    ? `[Image] ${params.caption.trim()}`
+                    : '[Image]';
+                await recentsService.recordMessage({
+                    messageId: result.messageId ?? `${Date.now()}`,
+                    senderNumber: toRecentSenderNumber(outboundJid),
+                    text: recentText,
+                    direction: 'outgoing',
+                    timestamp: Date.now()
+                });
             }
 
             return {

@@ -38,6 +38,49 @@ describe('MessageSender', () => {
         });
     });
 
+    it('sends an image with a branded caption through the active socket', async () => {
+        const sendMessage = vi.fn().mockResolvedValue({ key: { id: 'IMG123' } });
+        whatsappService.getSocket.mockReturnValue({ sendMessage });
+        const sender = new MessageSender(whatsappService as any);
+        const image = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+
+        await expect(sender.sendImage({
+            recipientJid: '5511999998888@s.whatsapp.net',
+            image,
+            mimetype: 'image/png',
+            caption: 'diagram'
+        })).resolves.toEqual({
+            success: true,
+            messageId: 'IMG123',
+            attempts: 1
+        });
+
+        expect(sendMessage).toHaveBeenCalledWith('5511999998888@s.whatsapp.net', {
+            image,
+            caption: 'diagram π',
+            mimetype: 'image/png'
+        });
+    });
+
+    it('uses the branding marker as the caption when an image has no caption', async () => {
+        const sendMessage = vi.fn().mockResolvedValue({ key: { id: 'IMG124' } });
+        whatsappService.getSocket.mockReturnValue({ sendMessage });
+        const sender = new MessageSender(whatsappService as any);
+        const image = Buffer.from([0xff, 0xd8, 0xff]);
+
+        await sender.sendImage({
+            recipientJid: '5511999998888@s.whatsapp.net',
+            image,
+            mimetype: 'image/jpeg'
+        });
+
+        expect(sendMessage).toHaveBeenCalledWith('5511999998888@s.whatsapp.net', {
+            image,
+            caption: 'π',
+            mimetype: 'image/jpeg'
+        });
+    });
+
     it('returns failure when no socket is available and retries are exhausted', async () => {
         vi.useFakeTimers();
         whatsappService.getSocket.mockReturnValue(undefined);
