@@ -25,3 +25,7 @@ Thumbs.db
 .pi-data/
 package-lock.json
 .playwright-mcp
+.pi/loops/
+
+# Tesseract OCR (auto-downloaded by LiteParse)
+*.traineddata

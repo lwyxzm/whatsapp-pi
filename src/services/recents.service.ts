@@ -228,4 +228,18 @@ export class RecentsService {
         const conversations = await this.getRecentConversations();
         return conversations.length > 0;
     }
+
+    /**
+     * Looks up a message by its ID across all conversations.
+     * Returns the message if found, or undefined if not found.
+     */
+    findMessageById(messageId: string): RecentConversationMessage | undefined {
+        for (const messages of Object.values(this.store.messagesBySender)) {
+            const found = messages.find(msg => msg.messageId === messageId);
+            if (found) {
+                return found;
+            }
+        }
+        return undefined;
+    }
 }

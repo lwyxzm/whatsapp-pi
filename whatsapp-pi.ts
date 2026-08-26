@@ -44,6 +44,7 @@ export default function (pi: ExtensionAPI) {
     const sessionManager = new SessionManager();
     const whatsappService = new WhatsAppService(sessionManager);
     const recentsService = new RecentsService(sessionManager);
+    whatsappService.setRecentsService(recentsService);
     const logger = new WhatsAppPiLogger(false);
     const audioService = new AudioService(logger);
     const incomingMediaService = new IncomingMediaService(audioService, logger);
@@ -238,7 +239,7 @@ export default function (pi: ExtensionAPI) {
         // Reset tool-sent flag for this new incoming message
         toolSentToJid = null;
 
-        const resolved = extractIncomingText(msg.message);
+        const resolved = extractIncomingText(msg.message, recentsService);
         if (resolved.kind === 'system') {
             logger.log(`[WhatsApp-Pi] ${pushName} (${sender}): ${resolved.text}`);
             return;
@@ -324,17 +325,6 @@ export default function (pi: ExtensionAPI) {
             }
 
             const message = params.message ?? '';
-            const formattedMessage = message
-                .split('\n')
-                .map((line: string) => `    ${line}`)
-                .join('\n');
-
-            logger.log([
-                t("log.outgoing.title"),
-                t("log.outgoing.to", { jid: resolvedJid }),
-                t("log.outgoing.message"),
-                formattedMessage
-            ].join('\n'));
 
             const outboundJid = whatsappService.resolveOutboundRecipientJid(resolvedJid);
             const result = await whatsappService.sendMessage(outboundJid, message);
@@ -349,19 +339,6 @@ export default function (pi: ExtensionAPI) {
                     direction: 'outgoing',
                     timestamp: Date.now()
                 });
-                logger.log([
-                    t("log.result.title"),
-                    t("log.outgoing.to", { jid: resolvedJid }),
-                    t("log.result.status.sent"),
-                    t("log.result.messageId", { messageId: result.messageId ?? t("log.unknownMessageId") })
-                ].join('\n'));
-            } else {
-                logger.log([
-                    t("log.result.title"),
-                    t("log.outgoing.to", { jid: resolvedJid }),
-                    t("log.result.status.failed"),
-                    t("log.result.error", { error: result.error ?? t("log.unknownError") })
-                ].join('\n'));
             }
 
             return {
