@@ -140,10 +140,12 @@ const createMockContext = () => ({
         notify: vi.fn()
     },
     sessionManager: {
-        getEntries: vi.fn().mockReturnValue([])
+        getEntries: vi.fn().mockReturnValue([]),
+        getSessionFile: vi.fn().mockReturnValue('/sessions/current.json')
     },
     compact: vi.fn(),
-    abort: vi.fn()
+    abort: vi.fn(),
+    newSession: vi.fn().mockResolvedValue({ cancelled: false })
 });
 
 const loadExtension = async () => {
@@ -381,6 +383,138 @@ describe('whatsapp-pi extension', () => {
             '5511999998888@s.whatsapp.net',
             'Session compacted successfully! ✅'
         );
+    });
+
+    it('executes /new commands received from WhatsApp by dispatching the internal command', async () => {
+        const registerExtension = await loadExtension();
+        const pi = createMockPi();
+        const ctx = createMockContext();
+        mocks.incomingMediaService.process.mockResolvedValue({ text: '/new' });
+
+        registerExtension(pi as any);
+        await pi.handlers.get('session_start')!({ reason: 'manual' }, ctx);
+        const messageCallback = mocks.whatsappService.setMessageCallback.mock.calls[0][0];
+
+        await messageCallback({
+            messages: [{
+                key: {
+                    id: 'WA1',
+                    remoteJid: '5511999998888@s.whatsapp.net',
+                    fromMe: false
+                },
+                pushName: 'Ana',
+                message: { conversation: '/new' }
+            }]
+        });
+
+        expect(mocks.whatsappService.sendMessage).toHaveBeenCalledWith(
+            '5511999998888@s.whatsapp.net',
+            'Starting a new session... 🔄'
+        );
+        expect(pi.sendUserMessage).toHaveBeenCalledWith(
+            '/whatsapp-new-session 5511999998888@s.whatsapp.net',
+            { deliverAs: 'followUp', expandPromptTemplates: true }
+        );
+        // Command messages are not delivered to the agent as prompts
+        expect(pi.sendUserMessage).not.toHaveBeenCalledWith(
+            expect.stringContaining('Message from'),
+            expect.anything()
+        );
+    });
+
+    it('whatsapp-new-session command creates a new session with the SOP skill kickoff', async () => {
+        const registerExtension = await loadExtension();
+        const pi = createMockPi();
+        const ctx = createMockContext();
+
+        const appendCustomEntry = vi.fn();
+        const replacementSendUserMessage = vi.fn();
+        ctx.newSession.mockImplementation(async (options: any) => {
+            await options.setup({ appendCustomEntry });
+            await options.withSession({ sendUserMessage: replacementSendUserMessage });
+            return { cancelled: false };
+        });
+
+        registerExtension(pi as any);
+        const command = pi.commands.get('whatsapp-new-session');
+
+        await command.handler('5511999998888@s.whatsapp.net', ctx);
+
+        expect(ctx.newSession).toHaveBeenCalledOnce();
+        expect(ctx.sessionManager.getSessionFile).toHaveBeenCalledOnce();
+        expect(appendCustomEntry).toHaveBeenCalledWith('whatsapp-confirm-new-session', {
+            jid: '5511999998888@s.whatsapp.net',
+            text: 'New session started ✅ SOP skill loaded.'
+        });
+        expect(replacementSendUserMessage).toHaveBeenCalledWith('/skill:sop', {
+            expandPromptTemplates: true
+        });
+        expect(mocks.whatsappService.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('whatsapp-new-session command notifies the chat when the switch is cancelled', async () => {
+        const registerExtension = await loadExtension();
+        const pi = createMockPi();
+        const ctx = createMockContext();
+        ctx.newSession.mockImplementation(async (options: any) => {
+            await options.setup({ appendCustomEntry: vi.fn() });
+            return { cancelled: true };
+        });
+
+        registerExtension(pi as any);
+        const command = pi.commands.get('whatsapp-new-session');
+
+        await command.handler('5511999998888@s.whatsapp.net', ctx);
+
+        expect(mocks.whatsappService.sendMessage).toHaveBeenCalledWith(
+            '5511999998888@s.whatsapp.net',
+            'New session cancelled. ❌'
+        );
+    });
+
+    it('sends the pending new-session confirmation on the first agent_start after /new', async () => {
+        const registerExtension = await loadExtension();
+        const pi = createMockPi();
+        const ctx = createMockContext();
+        ctx.sessionManager.getEntries.mockReturnValue([
+            {
+                type: 'custom',
+                customType: 'whatsapp-confirm-new-session',
+                data: { jid: '5511999998888@s.whatsapp.net', text: 'New session started ✅ SOP skill loaded.' }
+            }
+        ]);
+
+        registerExtension(pi as any);
+        await pi.handlers.get('session_start')!({ reason: 'new' }, ctx);
+        await pi.handlers.get('agent_start')!({}, ctx);
+
+        expect(mocks.whatsappService.sendMessage).toHaveBeenCalledWith(
+            '5511999998888@s.whatsapp.net',
+            'New session started ✅ SOP skill loaded.'
+        );
+
+        // Subsequent turns must not replay the confirmation
+        await pi.handlers.get('agent_start')!({}, ctx);
+        expect(mocks.whatsappService.sendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not send new-session confirmations when the session is resumed, not created', async () => {
+        const registerExtension = await loadExtension();
+        const pi = createMockPi();
+        const ctx = createMockContext();
+        ctx.sessionManager.getEntries.mockReturnValue([
+            {
+                type: 'custom',
+                customType: 'whatsapp-confirm-new-session',
+                data: { jid: '5511999998888@s.whatsapp.net', text: 'New session started ✅ SOP skill loaded.' }
+            }
+        ]);
+
+        registerExtension(pi as any);
+        await pi.handlers.get('session_start')!({ reason: 'startup' }, ctx);
+        await pi.handlers.get('agent_start')!({}, ctx);
+
+        expect(mocks.whatsappService.sendMessage).not.toHaveBeenCalled();
     });
 
     it('send_wa_message tool reports disconnected status without sending', async () => {

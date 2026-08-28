@@ -50,6 +50,10 @@ export default function (pi: ExtensionAPI) {
     const incomingMediaService = new IncomingMediaService(audioService, logger);
     const menuHandler = new MenuHandler(whatsappService, sessionManager, recentsService);
     let _ctx: ExtensionContext | undefined;
+    // True only for the extension instance born from a /new session switch
+    // (session_start with reason "new"). Gates the one-shot WhatsApp
+    // confirmation sent in agent_start so it never replays after restarts.
+    let confirmNewSessionPending = false;
 
     const formatFooterStatus = (status: string) => {
         if (status !== t("service.whatsapp.connected")) {
@@ -92,8 +96,9 @@ export default function (pi: ExtensionAPI) {
     };
 
     // Initial status setup
-    pi.on("session_start", async (_event, ctx) => {
+    pi.on("session_start", async (event, ctx) => {
         _ctx = ctx;
+        confirmNewSessionPending = event.reason === "new";
         // Check verbose mode
         const isVerboseFlagSet = process.argv.includes("--verbose");
 
@@ -261,18 +266,10 @@ export default function (pi: ExtensionAPI) {
 
         logger.log(`[WhatsApp-Pi] ${messageHeader} ${fullText}`);
 
-        // Use a standard delivery for ALL messages to ensure TUI consistency
-        if (imageBuffer && imageMimeType) {
-            pi.sendUserMessage([
-                { type: "text", text: `${messageHeader} ${fullText}` },
-                { type: "image", data: imageBuffer.toString('base64'), mimeType: imageMimeType }
-            ], { deliverAs: "followUp" });
-        } else {
-            pi.sendUserMessage(`${messageHeader} ${fullText}`, { deliverAs: "followUp" });
-        }
+        // Handle commands before delivering to the agent
+        const commandText = text.trim().toLowerCase();
 
-        // Handle commands
-        if (text.trim().toLowerCase().startsWith('/compact')) {
+        if (commandText.startsWith('/compact')) {
             logger.log(`[WhatsApp-Pi] Session compact requested by ${pushName}.`);
 
             if (_ctx) {
@@ -282,13 +279,43 @@ export default function (pi: ExtensionAPI) {
             return;
         }
 
-        if (text.trim().toLowerCase().startsWith('/abort')) {
+        if (commandText.startsWith('/abort')) {
             logger.log(`[WhatsApp-Pi] Abort requested by ${pushName}.`);
             if (_ctx) {
                 _ctx.abort();
                 await whatsappService.sendMessage(remoteJid!, "Aborted! ✅");
             }
             return;
+        }
+
+        if (commandText.startsWith('/new')) {
+            logger.log(`[WhatsApp-Pi] New session requested by ${pushName}.`);
+
+            if (_ctx && remoteJid) {
+                // Ack while the WhatsApp socket is still alive — the session switch
+                // tears it down and the replacement extension instance reconnects.
+                await whatsappService.sendMessage(remoteJid, "Starting a new session... 🔄");
+
+                // Dispatch the internal command that performs the switch. Extension
+                // commands run with a command context — the only context exposing
+                // newSession(). expandPromptTemplates is supported by the running pi;
+                // the cast keeps the older published extension types happy.
+                pi.sendUserMessage(`/whatsapp-new-session ${remoteJid}`, {
+                    deliverAs: "followUp",
+                    expandPromptTemplates: true
+                } as unknown as { deliverAs?: "steer" | "followUp" });
+            }
+            return;
+        }
+
+        // Use a standard delivery for all other messages to ensure TUI consistency
+        if (imageBuffer && imageMimeType) {
+            pi.sendUserMessage([
+                { type: "text", text: `${messageHeader} ${fullText}` },
+                { type: "image", data: imageBuffer.toString('base64'), mimeType: imageMimeType }
+            ], { deliverAs: "followUp" });
+        } else {
+            pi.sendUserMessage(`${messageHeader} ${fullText}`, { deliverAs: "followUp" });
         }
 
         
@@ -568,6 +595,54 @@ export default function (pi: ExtensionAPI) {
     // Suppress automatic message_end reply when tool already sent
     // This is checked by the message_end handler below
 
+    // Register the command that performs the /new session switch. It is invoked
+    // internally via pi.sendUserMessage from the WhatsApp /new handler; a command
+    // context is required because it is the only one exposing newSession().
+    pi.registerCommand("whatsapp-new-session", {
+        description: "Start a new Pi session with the SOP skill loaded (internal — used by the /new WhatsApp command)",
+        handler: async (args, ctx) => {
+            const jid = args.trim() || undefined;
+            try {
+                const result = await ctx.newSession({
+                    parentSession: ctx.sessionManager.getSessionFile(),
+                    setup: async (sm) => {
+                        if (jid) {
+                            // Marker consumed by the replacement instance's
+                            // agent_start handler to confirm over WhatsApp once
+                            // reconnected. Custom entries do not participate in
+                            // LLM context.
+                            sm.appendCustomEntry("whatsapp-confirm-new-session", {
+                                jid,
+                                text: "New session started ✅ SOP skill loaded."
+                            });
+                        }
+                    },
+                    withSession: async (replacementCtx) => {
+                        // Kick off the new conversation with the SOP skill loaded.
+                        // expandPromptTemplates is supported by the running pi;
+                        // the cast keeps the older published extension types happy.
+                        await replacementCtx.sendUserMessage("/skill:sop", {
+                            expandPromptTemplates: true
+                        } as unknown as { deliverAs?: "steer" | "followUp" });
+                    }
+                });
+
+                if (result.cancelled && jid) {
+                    await whatsappService.sendMessage(jid, "New session cancelled. ❌");
+                }
+            } catch (error) {
+                logger.error(`[WhatsApp-Pi] New session failed: ${error instanceof Error ? error.message : String(error)}`);
+                if (jid) {
+                    try {
+                        await whatsappService.sendMessage(jid, "Failed to start a new session. ❌");
+                    } catch {
+                        // Best-effort: the WhatsApp socket may already be gone
+                    }
+                }
+            }
+        }
+    });
+
     // Register commands
     pi.registerCommand("whatsapp", {
         description: t("command.whatsapp.description"),
@@ -586,8 +661,31 @@ export default function (pi: ExtensionAPI) {
     });
 
     // Handle outgoing messages (Agent -> WhatsApp)
-    pi.on("agent_start", async (_event, _ctx) => {
+    pi.on("agent_start", async (_event, ctx) => {
         if (sessionManager.getStatus() !== 'connected') return;
+
+        // Send the pending new-session confirmation (created via /new) once the
+        // replacement instance has reconnected WhatsApp. Runs at most once per
+        // instance — gated by confirmNewSessionPending (see session_start) — so
+        // restarts or resumes of the same session never replay it.
+        if (confirmNewSessionPending) {
+            confirmNewSessionPending = false;
+            for (const entry of [...ctx.sessionManager.getEntries()]) {
+                if (entry.type !== "custom" || entry.customType !== "whatsapp-confirm-new-session") continue;
+                const data = (entry as { data?: { jid?: string; text?: string } }).data;
+                if (!data?.jid) continue;
+                try {
+                    await whatsappService.sendMessage(
+                        whatsappService.resolveOutboundRecipientJid(data.jid),
+                        data.text ?? "New session started ✅"
+                    );
+                    logger.log(`[WhatsApp-Pi] New-session confirmation sent to ${data.jid}`);
+                } catch (error) {
+                    logger.error(`[WhatsApp-Pi] Failed to send new-session confirmation: ${error instanceof Error ? error.message : String(error)}`);
+                }
+            }
+        }
+
         const lastJid = whatsappService.getLastRemoteJid();
         if (lastJid) {
             await whatsappService.sendPresence(whatsappService.resolveOutboundRecipientJid(lastJid), 'composing');

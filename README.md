@@ -217,6 +217,7 @@ The three read-only tools query the local recents store at `~/.pi/agent/extensio
 Send these commands directly in WhatsApp to control the agent session:
 - **`/compact`** - Compact the current Pi session context
 - **`/abort`** - Abort the current Pi agent operation
+- **`/new`** - Start a fresh Pi session with the SOP skill loaded (the new session kicks off with `/skill:sop` so the collaboration workflow is active from the first turn)
 
 ## Project Structure
 

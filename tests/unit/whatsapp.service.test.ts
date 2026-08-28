@@ -1,14 +1,24 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SessionManager } from '../../src/services/session.manager.ts';
 import { WhatsAppService } from '../../src/services/whatsapp.service.ts';
+import { mkdtemp, rm } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 describe('WhatsAppService Filtering', () => {
     let whatsappService: WhatsAppService;
     let sessionManager: SessionManager;
+    let dataDir: string;
 
-    beforeEach(() => {
-        sessionManager = new SessionManager();
+    beforeEach(async () => {
+        // Use a temp dir so tests never touch the real ~/.pi/agent/extensions/whatsapp-pi config
+        dataDir = await mkdtemp(join(tmpdir(), 'whatsapp-pi-service-'));
+        sessionManager = new SessionManager(dataDir);
         whatsappService = new WhatsAppService(sessionManager);
+    });
+
+    afterEach(async () => {
+        await rm(dataDir, { recursive: true, force: true });
     });
 
     it('should only process messages if status is connected', async () => {
