@@ -662,12 +662,10 @@ export default function (pi: ExtensionAPI) {
 
     // Handle outgoing messages (Agent -> WhatsApp)
     pi.on("agent_start", async (_event, ctx) => {
-        if (sessionManager.getStatus() !== 'connected') return;
-
         // Send the pending new-session confirmation (created via /new) once the
-        // replacement instance has reconnected WhatsApp. Runs at most once per
-        // instance — gated by confirmNewSessionPending (see session_start) — so
-        // restarts or resumes of the same session never replay it.
+        // replacement instance has WhatsApp back. Runs at most once per instance —
+        // gated by confirmNewSessionPending (see session_start) — so restarts or
+        // resumes of the same session never replay it.
         if (confirmNewSessionPending) {
             confirmNewSessionPending = false;
             for (const entry of [...ctx.sessionManager.getEntries()]) {
@@ -675,6 +673,19 @@ export default function (pi: ExtensionAPI) {
                 const data = (entry as { data?: { jid?: string; text?: string } }).data;
                 if (!data?.jid) continue;
                 try {
+                    // The session switch stopped the previous socket. The replacement
+                    // instance only reconnects automatically when the switch was
+                    // initiated from WhatsApp (marker present), regardless of the
+                    // --whatsapp-pi-online startup flag. session_start already ran
+                    // and awaited auto-connect, so this cannot double-connect.
+                    if (whatsappService.getEffectiveStatus() !== 'connected') {
+                        if (!(await sessionManager.isRegistered())) {
+                            logger.log(`[WhatsApp-Pi] Skipping new-session confirmation to ${data.jid}: no WhatsApp credentials`);
+                            continue;
+                        }
+                        logger.log(`[WhatsApp-Pi] Reconnecting WhatsApp for the new session...`);
+                        await whatsappService.start({ allowPairingOnAuthFailure: false });
+                    }
                     await whatsappService.sendMessage(
                         whatsappService.resolveOutboundRecipientJid(data.jid),
                         data.text ?? "New session started ✅"
@@ -686,6 +697,7 @@ export default function (pi: ExtensionAPI) {
             }
         }
 
+        if (sessionManager.getStatus() !== 'connected') return;
         const lastJid = whatsappService.getLastRemoteJid();
         if (lastJid) {
             await whatsappService.sendPresence(whatsappService.resolveOutboundRecipientJid(lastJid), 'composing');
