@@ -618,22 +618,12 @@ export default function (pi: ExtensionAPI) {
                         }
                     },
                     withSession: async (replacementCtx) => {
-                        // Kick off the new conversation with the SOP skill loaded plus the
-                        // task charter. The charter references (does not copy) the team
-                        // conventions so there is a single source of truth — ai-star/AGENTS.md
-                        // is the authoritative copy; sessions whose project AGENTS.md already
-                        // carries the same rules (ai-star itself) skip re-reading. The three
-                        // anchors stay inline so non-ai-star sessions always get the gist even
-                        // before reading the full doc. Args after /skill:sop are appended to
-                        // the expanded skill block as the user message. expandPromptTemplates
-                        // is supported by the running pi; the cast keeps the older published
-                        // extension types happy.
-                        await replacementCtx.sendUserMessage(
-                            `/skill:sop 任务章程 — 本任务遵守团队工作约定, 完整版见 /Users/mac004/Developer/ai-star/AGENTS.md; 若本项目 AGENTS.md 已含相同约定, 以项目为准, 不重复执行。要点: ① 评审: reviewer 使用 brooks-lint(brooks-review skill, Symptom → Source → Consequence → Remedy 框架 + VERDICT/BLOCKING/SUGGESTED/EVIDENCE 契约); ② UI/UX: 先查找相关 skill 再动手设计; ③ RN 客户端组件测试: 优先使用 @testing-library/react-native。`,
-                            {
-                                expandPromptTemplates: true
-                            } as unknown as { deliverAs?: "steer" | "followUp" }
-                        );
+                        // Kick off the new conversation with the SOP skill loaded.
+                        // expandPromptTemplates is supported by the running pi;
+                        // the cast keeps the older published extension types happy.
+                        await replacementCtx.sendUserMessage("/skill:sop", {
+                            expandPromptTemplates: true
+                        } as unknown as { deliverAs?: "steer" | "followUp" });
                     }
                 });
 
