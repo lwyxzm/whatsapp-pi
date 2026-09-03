@@ -309,13 +309,15 @@ export default function (pi: ExtensionAPI) {
         }
 
         // Use a standard delivery for all other messages to ensure TUI consistency
+        // Using "steer" delivers the message mid-run (after the current tool call finishes),
+        // matching the interactive behavior of typing in the TUI during execution.
         if (imageBuffer && imageMimeType) {
             pi.sendUserMessage([
                 { type: "text", text: `${messageHeader} ${fullText}` },
                 { type: "image", data: imageBuffer.toString('base64'), mimeType: imageMimeType }
-            ], { deliverAs: "followUp" });
+            ], { deliverAs: "steer" });
         } else {
-            pi.sendUserMessage(`${messageHeader} ${fullText}`, { deliverAs: "followUp" });
+            pi.sendUserMessage(`${messageHeader} ${fullText}`, { deliverAs: "steer" });
         }
 
         
@@ -599,7 +601,7 @@ export default function (pi: ExtensionAPI) {
     // internally via pi.sendUserMessage from the WhatsApp /new handler; a command
     // context is required because it is the only one exposing newSession().
     pi.registerCommand("whatsapp-new-session", {
-        description: "Start a new Pi session with the SOP skill loaded (internal — used by the /new WhatsApp command)",
+        description: "Start a new Pi session (internal — used by the /new WhatsApp command)",
         handler: async (args, ctx) => {
             const jid = args.trim() || undefined;
             try {
@@ -613,17 +615,9 @@ export default function (pi: ExtensionAPI) {
                             // LLM context.
                             sm.appendCustomEntry("whatsapp-confirm-new-session", {
                                 jid,
-                                text: "New session started ✅ SOP skill loaded."
+                                text: "New session started ✅"
                             });
                         }
-                    },
-                    withSession: async (replacementCtx) => {
-                        // Kick off the new conversation with the SOP skill loaded.
-                        // expandPromptTemplates is supported by the running pi;
-                        // the cast keeps the older published extension types happy.
-                        await replacementCtx.sendUserMessage("/skill:sop", {
-                            expandPromptTemplates: true
-                        } as unknown as { deliverAs?: "steer" | "followUp" });
                     }
                 });
 

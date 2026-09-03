@@ -353,7 +353,7 @@ describe('whatsapp-pi extension', () => {
         expect(mocks.whatsappService.sendPresence).toHaveBeenCalledWith('5511999998888@s.whatsapp.net', 'composing');
         expect(pi.sendUserMessage).toHaveBeenCalledWith(
             'Message from Ana (5511999998888): hello from whatsapp',
-            { deliverAs: 'followUp' }
+            { deliverAs: 'steer' }
         );
     });
 
@@ -423,16 +423,14 @@ describe('whatsapp-pi extension', () => {
         );
     });
 
-    it('whatsapp-new-session command creates a new session with the SOP skill kickoff', async () => {
+    it('whatsapp-new-session command creates a new session cleanly without auto-triggering prompts', async () => {
         const registerExtension = await loadExtension();
         const pi = createMockPi();
         const ctx = createMockContext();
 
         const appendCustomEntry = vi.fn();
-        const replacementSendUserMessage = vi.fn();
         ctx.newSession.mockImplementation(async (options: any) => {
             await options.setup({ appendCustomEntry });
-            await options.withSession({ sendUserMessage: replacementSendUserMessage });
             return { cancelled: false };
         });
 
@@ -445,10 +443,7 @@ describe('whatsapp-pi extension', () => {
         expect(ctx.sessionManager.getSessionFile).toHaveBeenCalledOnce();
         expect(appendCustomEntry).toHaveBeenCalledWith('whatsapp-confirm-new-session', {
             jid: '5511999998888@s.whatsapp.net',
-            text: 'New session started ✅ SOP skill loaded.'
-        });
-        expect(replacementSendUserMessage).toHaveBeenCalledWith('/skill:sop', {
-            expandPromptTemplates: true
+            text: 'New session started ✅'
         });
         expect(mocks.whatsappService.sendMessage).not.toHaveBeenCalled();
     });
@@ -481,7 +476,7 @@ describe('whatsapp-pi extension', () => {
             {
                 type: 'custom',
                 customType: 'whatsapp-confirm-new-session',
-                data: { jid: '5511999998888@s.whatsapp.net', text: 'New session started ✅ SOP skill loaded.' }
+                data: { jid: '5511999998888@s.whatsapp.net', text: 'New session started ✅' }
             }
         ]);
 
@@ -491,7 +486,7 @@ describe('whatsapp-pi extension', () => {
 
         expect(mocks.whatsappService.sendMessage).toHaveBeenCalledWith(
             '5511999998888@s.whatsapp.net',
-            'New session started ✅ SOP skill loaded.'
+            'New session started ✅'
         );
 
         // Subsequent turns must not replay the confirmation
@@ -509,7 +504,7 @@ describe('whatsapp-pi extension', () => {
             {
                 type: 'custom',
                 customType: 'whatsapp-confirm-new-session',
-                data: { jid: '5511999998888@s.whatsapp.net', text: 'New session started ✅ SOP skill loaded.' }
+                data: { jid: '5511999998888@s.whatsapp.net', text: 'New session started ✅' }
             }
         ]);
 
@@ -520,7 +515,7 @@ describe('whatsapp-pi extension', () => {
         expect(mocks.whatsappService.start).toHaveBeenCalledWith({ allowPairingOnAuthFailure: false });
         expect(mocks.whatsappService.sendMessage).toHaveBeenCalledWith(
             '5511999998888@s.whatsapp.net',
-            'New session started ✅ SOP skill loaded.'
+            'New session started ✅'
         );
     });
 
@@ -534,7 +529,7 @@ describe('whatsapp-pi extension', () => {
             {
                 type: 'custom',
                 customType: 'whatsapp-confirm-new-session',
-                data: { jid: '5511999998888@s.whatsapp.net', text: 'New session started ✅ SOP skill loaded.' }
+                data: { jid: '5511999998888@s.whatsapp.net', text: 'New session started ✅' }
             }
         ]);
 
@@ -554,7 +549,7 @@ describe('whatsapp-pi extension', () => {
             {
                 type: 'custom',
                 customType: 'whatsapp-confirm-new-session',
-                data: { jid: '5511999998888@s.whatsapp.net', text: 'New session started ✅ SOP skill loaded.' }
+                data: { jid: '5511999998888@s.whatsapp.net', text: 'New session started ✅' }
             }
         ]);
 
@@ -635,7 +630,7 @@ describe('whatsapp-pi extension', () => {
 
         expect(pi.sendUserMessage).toHaveBeenCalledWith(
             'Message from Ana (5511999998888) in group 120363012345@g.us: hello from whatsapp',
-            { deliverAs: 'followUp' }
+            { deliverAs: 'steer' }
         );
     });
 });
