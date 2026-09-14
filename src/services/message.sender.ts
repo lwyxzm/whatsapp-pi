@@ -86,11 +86,14 @@ export class MessageSender {
                     throw new WhatsAppError('SOCKET_NOT_INIT', t('message.sender.socketNotInitialized'));
                 }
 
-                if (isGroup && attempts === 1) {
+                // Pre-load group metadata before sending
+                if (isGroup) {
                     await this.whatsappService.prepareGroupSession(recipientJid);
                 }
 
+                // Note: Branding π is applied by send/sendImage before reaching sendContent
                 const response = await socket.sendMessage(recipientJid, content);
+                this.whatsappService.cacheSentMessage(response?.key?.id, response?.message);
 
                 fileLog(`SUCCESS sending to ${recipientJid} on attempt ${attempts}`);
                 return {
@@ -113,7 +116,7 @@ export class MessageSender {
                 if (attempts < maxRetries) {
                     const message = error instanceof Error ? error.message : String(error);
                     const isNoSessions = message.includes('No sessions');
-                    const backoff = isGroup && !isNoSessions ? 5000 : 1000;
+                    const backoff = isGroup && isNoSessions ? 5000 : 1000;
                     const delay = Math.pow(2, attempts) * backoff;
 
                     if (this.whatsappService.isVerbose()) {
