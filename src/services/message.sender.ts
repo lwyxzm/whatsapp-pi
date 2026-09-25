@@ -1,5 +1,5 @@
 import { WhatsAppService } from './whatsapp.service.js';
-import { ImageMessageRequest, MessageOptions, MessageRequest, MessageResult, WhatsAppError } from '../models/whatsapp.types.js';
+import { DocumentMessageRequest, ImageMessageRequest, MessageOptions, MessageRequest, MessageResult, WhatsAppError } from '../models/whatsapp.types.js';
 import { t } from '../i18n.js';
 import { appendFileSync } from 'fs';
 import { createStoragePaths } from './storage-path.js';
@@ -64,9 +64,27 @@ export class MessageSender {
         );
     }
 
+    /** Sends a file as a WhatsApp document (filename preserved, not rendered inline). */
+    public async sendDocument(request: DocumentMessageRequest): Promise<MessageResult> {
+        const caption = request.caption?.trim();
+        return this.sendContent(
+            request.recipientJid,
+            {
+                document: request.document,
+                fileName: request.fileName,
+                mimetype: request.mimetype,
+                ...(caption ? { caption: `${caption} π` } : {})
+            },
+            request.options
+        );
+    }
+
     private async sendContent(
         recipientJid: string,
-        content: { text: string } | { image: Buffer; caption: string; mimetype: string },
+        content:
+            | { text: string }
+            | { image: Buffer; caption: string; mimetype: string }
+            | { document: Buffer; fileName: string; mimetype: string; caption?: string },
         options?: MessageOptions
     ): Promise<MessageResult> {
         const isGroup = recipientJid.endsWith('@g.us');

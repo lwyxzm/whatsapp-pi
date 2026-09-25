@@ -111,7 +111,10 @@ interface WhatsAppSocketLike {
     logout(): Promise<void>;
     sendMessage(
         jid: string,
-        content: { text: string } | { image: Buffer; caption: string; mimetype: string }
+        content:
+            | { text: string }
+            | { image: Buffer; caption: string; mimetype: string }
+            | { document: Buffer; fileName: string; mimetype: string; caption?: string }
     ): Promise<SentMessageLike | undefined>;
     sendPresenceUpdate(presence: 'composing' | 'recording' | 'paused', jid: string): Promise<void>;
     readMessages(messages: Array<{ remoteJid: string; id: string; fromMe: boolean }>): Promise<void>;
@@ -869,6 +872,32 @@ export class WhatsAppService {
         const result = await this.messageSender.sendImage({
             recipientJid,
             image,
+            mimetype,
+            caption
+        });
+        await this.sendPresence(recipientJid, 'paused');
+
+        if (!result.success) {
+            console.error(t('service.whatsapp.failedSendMessage', { jid: recipientJid, error: result.error ?? t('message.sender.unknownError') }));
+        }
+
+        return result;
+    }
+
+    async sendDocument(
+        jid: string,
+        document: Buffer,
+        fileName: string,
+        mimetype: string,
+        caption?: string
+    ) {
+        const recipientJid = this.resolveOutboundRecipientJid(jid);
+
+        await this.sendPresence(recipientJid, 'composing');
+        const result = await this.messageSender.sendDocument({
+            recipientJid,
+            document,
+            fileName,
             mimetype,
             caption
         });

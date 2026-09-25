@@ -44,6 +44,19 @@ export interface ImageMessageRequest {
     options?: MessageOptions;
 }
 
+/**
+ * A file sent as a WhatsApp *document* — the attachment card with a filename,
+ * as opposed to {@link ImageMessageRequest} which is rendered inline.
+ */
+export interface DocumentMessageRequest {
+    recipientJid: string;
+    document: Buffer;
+    fileName: string;
+    mimetype: string;
+    caption?: string;
+    options?: MessageOptions;
+}
+
 export interface MessageResult {
     success: boolean;
     messageId?: string;
