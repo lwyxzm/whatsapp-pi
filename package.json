@@ -33,7 +33,6 @@
   },
   "dependencies": {
     "@llamaindex/liteparse": "^1.5.3",
-    "@sinclair/typebox": "^0.27.10",
     "baileys": "^7.0.0-rc14",
     "ffmpeg-static": "^5.3.0",
     "pino": "^10.3.1",
@@ -51,8 +50,12 @@
     "eslint": "^9.39.4",
     "ts-node": "^10.9.2",
     "tsx": "^4.7.0",
+    "typebox": "^1.1.24",
     "typescript": "^5.3.0",
     "vitest": "^1.2.0"
+  },
+  "peerDependencies": {
+    "typebox": "*"
   },
   "pi": {
     "extensions": [
